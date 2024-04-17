@@ -1,0 +1,1007 @@
+[COM6513] Assignment: Topic Classification with a Feedforward Network
+Instructor: Nikos Aletras
+The goal of this assignment is to develop a Feedforward neural network for topic classification.
+
+For that purpose, you will implement:
+
+Text processing methods for transforming raw text data into input vectors for your network (1 mark)
+
+A Feedforward network consisting of:
+
+One-hot input layer mapping words into an Embedding weight matrix (1 mark)
+One hidden layer computing the mean embedding vector of all words in input followed by a ReLU activation function (1 mark)
+Output layer with a softmax activation. (1 mark)
+The Stochastic Gradient Descent (SGD) algorithm with back-propagation to learn the weights of your Neural network. Your algorithm should:
+
+Use (and minimise) the Categorical Cross-entropy loss function (1 mark)
+Perform a Forward pass to compute intermediate outputs (2 marks)
+Perform a Backward pass to compute gradients and update all sets of weights (3 marks)
+Implement and use Dropout after each hidden layer for regularisation (1 marks)
+Discuss how did you choose hyperparameters? You can tune the learning rate (hint: choose small values), embedding size {e.g. 50, 300, 500} and the dropout rate {e.g. 0.2, 0.5}. Please use tables or graphs to show training and validation performance for each hyperparameter combination (2 marks).
+
+After training a model, plot the learning process (i.e. training and validation loss in each epoch) using a line plot and report accuracy. Does your model overfit, underfit or is about right? (1 mark).
+
+Re-train your network by using pre-trained embeddings (GloVe) trained on large corpora. Instead of randomly initialising the embedding weights matrix, you should initialise it with the pre-trained weights. During training, you should not update them (i.e. weight freezing) and backprop should stop before computing gradients for updating embedding weights. Report results by performing hyperparameter tuning and plotting the learning process. Do you get better performance? (1 marks).
+
+Extend you Feedforward network by adding more hidden layers (e.g. one more or two). How does it affect the performance? Note: You need to repeat hyperparameter tuning, but the number of combinations grows exponentially. Therefore, you need to choose a subset of all possible combinations (3 marks)
+
+Provide well documented and commented code describing all of your choices. In general, you are free to make decisions about text processing (e.g. punctuation, numbers, vocabulary size) and hyperparameter values. We expect to see justifications and discussion for all of your choices. You must provide detailed explanations of your implementation, provide a detailed analysis of the results (e.g. why a model performs better than other models etc.) including error analyses (e.g. examples and discussion/analysis of missclasifications etc.) (10 marks).
+
+Provide efficient solutions by using Numpy arrays when possible. Executing the whole notebook with your code should not take more than 10 minutes on any standard computer (e.g. Intel Core i5 CPU, 8 or 16GB RAM) excluding hyperparameter tuning runs and loading the pretrained vectors. You can find tips in Lab 1 (2 marks).
+
+Data
+The data you will use for the task is a subset of the AG News Corpus and you can find it in the ./data_topic folder in CSV format:
+
+data_topic/train.csv: contains 2,400 news articles, 800 for each class to be used for training.
+data_topic/dev.csv: contains 150 news articles, 50 for each class to be used for hyperparameter selection and monitoring the training process.
+data_topic/test.csv: contains 900 news articles, 300 for each class to be used for testing.
+Class 1: Politics, Class 2: Sports, Class 3: Economy
+
+Pre-trained Embeddings
+You can download pre-trained GloVe embeddings trained on Common Crawl (840B tokens, 2.2M vocab, cased, 300d vectors, 2.03 GB download) from here. No need to unzip, the file is large.
+
+Save Memory
+To save RAM, when you finish each experiment you can delete the weights of your network using del W followed by Python's garbage collector gc.collect()
+
+Submission Instructions
+You must submit a Jupyter Notebook file (assignment_yourusername.ipynb) and an exported PDF version (you can do it from Jupyter: File->Download as->PDF via Latex, you need to have a Latex distribution installed e.g. MikTex or MacTex and pandoc). If you are unable to export the pdf via Latex, you can print the notebook web page to a pdf file from your browser (e.g. on Firefox: File->Print->Save to PDF).
+
+You are advised to follow the code structure given in this notebook by completing all given funtions. You can also write any auxilliary/helper functions (and arguments for the functions) that you might need but note that you can provide a full solution without any such functions. Similarly, you can just use only the packages imported below but you are free to use any functionality from the Python Standard Library, NumPy, SciPy (excluding built-in softmax funtcions) and Pandas. You are not allowed to use any third-party library such as Scikit-learn (apart from metric functions already provided), NLTK, Spacy, Keras, Pytorch etc.. You should mention if you've used Windows to write and test your code because we mostly use Unix based machines for marking (e.g. Ubuntu, MacOS).
+
+There is no single correct answer on what your accuracy should be, but correct implementations usually achieve F1-scores around 80% or higher. The quality of the analysis of the results and discussion is as important as the implementation and accuracy of your models. Please be brief and consice in your discussion and analyses.
+
+This assignment will be marked out of 30. It is worth 30% of your final grade in the module.
+
+The deadline for this assignment is 23:59 on Mon, 12 Apr 2024 and it needs to be submitted via Blackboard. Standard departmental penalties for lateness will be applied. We use a range of strategies to detect unfair means, including Turnitin which helps detect plagiarism. Use of unfair means would result in getting a failing grade.
+
+import pandas as pd
+import numpy as np
+from collections import Counter
+import re
+import matplotlib.pyplot as plt
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+import random
+from time import localtime, strftime
+from scipy.stats import spearmanr,pearsonr
+import zipfile
+import gc
+​
+# fixing random seed for reproducibility
+random.seed(123)
+np.random.seed(123)
+​
+Transform Raw texts into training and development data
+First, you need to load the training, development and test sets from their corresponding CSV files (tip: you can use Pandas dataframes).
+
+# Load training data
+train_df = pd.read_csv("data_topic/train.csv", header=None, names=["Class", "Text"])
+
+# Load development data
+dev_df = pd.read_csv("data_topic/dev.csv", header=None, names=["Class", "Text"])
+
+# Load test data
+test_df = pd.read_csv("data_topic/test.csv", header=None, names=["Class", "Text"])
+
+# Display the structure of the training data
+print("Training data:")
+print(train_df.head())
+
+# Display the structure of the development data
+print("\nDevelopment data:")
+print(dev_df.head())
+
+# Display the structure of the test data
+print("\nTest data:")
+print(test_df.head())
+
+train_df = pd.read_csv('./data_topic/train.csv', header=None)
+test_df = pd.read_csv('./data_topic/test.csv', header=None)
+dev_df = pd.read_csv('./data_topic/dev.csv', header=None)
+train_df.head
+<bound method NDFrame.head of       0                                                  1
+0     1  Reuters - Venezuelans turned out early\and in ...
+1     1  Reuters - South Korean police used water canno...
+2     1  Reuters - Thousands of Palestinian\prisoners i...
+3     1  AFP - Sporadic gunfire and shelling took place...
+4     1  AP - Dozens of Rwandan soldiers flew into Suda...
+...  ..                                                ...
+2395  3  Australia #39;s dominant airline, Qantas, has ...
+2396  3  Reuters - Medtronic Inc. (MDT.N) on Wednesday\...
+2397  3   SAN FRANCISCO (Reuters) - Google Inc. &lt;A H...
+2398  3  BHP Billiton, the world #39;s biggest mining c...
+2399  3  Europe’s Frustration Grows as Dollar Hits Anot...
+
+[2400 rows x 2 columns]>
+train_df.columns = ['label', 'text']
+test_df.columns = ['label', 'text']
+dev_df.columns = ['label', 'text']
+print(train_df.shape)
+print(test_df.shape)
+print(dev_df.shape)
+(2400, 2)
+(900, 2)
+(150, 2)
+Create input representations
+To train your Feedforward network, you first need to obtain input representations given a vocabulary. One-hot encoding requires large memory capacity. Therefore, we will instead represent documents as lists of vocabulary indices (each word corresponds to a vocabulary index).
+
+Text Pre-Processing Pipeline
+To obtain a vocabulary of words. You should:
+
+tokenise all texts into a list of unigrams (tip: you can re-use the functions from Assignment 1)
+remove stop words (using the one provided or one of your preference)
+remove unigrams appearing in less than K documents
+use the remaining to create a vocabulary of the top-N most frequent unigrams in the entire corpus.
+stop_words = ['a','in','on','at','and','or', 
+              'to', 'the', 'of', 'an', 'by', 
+              'as', 'is', 'was', 'were', 'been', 'be', 
+              'are','for', 'this', 'that', 'these', 'those', 'you', 'i', 'if',
+             'it', 'he', 'she', 'we', 'they', 'will', 'have', 'has',
+              'do', 'did', 'can', 'could', 'who', 'which', 'what',
+              'but', 'not', 'there', 'no', 'does', 'not', 'so', 've', 'their',
+             'his', 'her', 'they', 'them', 'from', 'with', 'its']
+​
+Unigram extraction from a document
+You first need to implement the extract_ngrams function. It takes as input:
+
+x_raw: a string corresponding to the raw text of a document
+ngram_range: a tuple of two integers denoting the type of ngrams you want to extract, e.g. (1,2) denotes extracting unigrams and bigrams.
+token_pattern: a string to be used within a regular expression to extract all tokens. Note that data is already tokenised so you could opt for a simple white space tokenisation.
+stop_words: a list of stop words
+vocab: a given vocabulary. It should be used to extract specific features.
+and returns:
+
+a list of all extracted features.
+def extract_ngrams(x_raw, ngram_range=(1, 3), token_pattern=r'\b[A-Za-z][A-Za-z]+\b', stop_words=[], vocab=set()):
+    # Tokenize the raw text
+    tokens = re.findall(token_pattern, x_raw.lower())
+    
+    # Optionally, remove stop words
+    tokens = [token for token in tokens if token not in stop_words]
+    
+    # Generate n-grams based on ngram_range
+    ngrams = []
+    for n in range(ngram_range[0], ngram_range[1] + 1):
+        for i in range(len(tokens) - n + 1):
+            ngram = ' '.join(tokens[i:i+n])
+            ngrams.append(ngram)
+    
+    # Filter out n-grams not in the vocabulary, if provided
+    if vocab:
+        ngrams = [ngram for ngram in ngrams if ngram in vocab]
+    
+    return ngrams
+​
+# Example usage:
+x_raw = "Horse is the fastest animal after leopard."
+vocab = {'horse', 'animal', 'fastest', 'after leopard'}
+​
+# Extract unigrams, bigrams, and trigrams
+ngrams = extract_ngrams(x_raw, ngram_range=(1, 3), stop_words=stop_words, vocab=vocab)
+​
+print("Ngrams:", ngrams)
+​
+Ngrams: ['horse', 'fastest', 'animal', 'after leopard']
+Create a vocabulary of n-grams
+Then the get_vocab function will be used to (1) create a vocabulary of ngrams; (2) count the document frequencies of ngrams; (3) their raw frequency. It takes as input:
+
+X_raw: a list of strings each corresponding to the raw text of a document
+ngram_range: a tuple of two integers denoting the type of ngrams you want to extract, e.g. (1,2) denotes extracting unigrams and bigrams.
+token_pattern: a string to be used within a regular expression to extract all tokens. Note that data is already tokenised so you could opt for a simple white space tokenisation.
+stop_words: a list of stop words
+min_df: keep ngrams with a minimum document frequency.
+keep_topN: keep top-N more frequent ngrams.
+and returns:
+
+vocab: a set of the n-grams that will be used as features.
+df: a Counter (or dict) that contains ngrams as keys and their corresponding document frequency as values.
+ngram_counts: counts of each ngram in vocab
+def get_vocab(X_raw, ngram_range=(1, 3), token_pattern=r'\b[A-Za-z][A-Za-z]+\b', stop_words=[], min_df=1, keep_topN=None):
+   # Initialize variables to store document frequency and raw frequency
+    df = Counter()
+    ngram_counts = Counter()
+    
+    # Loop through each document in X_raw
+    for x_raw in X_raw:
+        # Extract n-grams from the current document
+        ngrams = extract_ngrams(x_raw, ngram_range=ngram_range, token_pattern=token_pattern, stop_words=stop_words)
+        
+        # Update document frequency for each n-gram
+        unique_ngrams = set(ngrams)
+        df.update(unique_ngrams)
+        
+        # Update raw frequency for each n-gram
+        ngram_counts.update(ngrams)
+    
+    # Filter n-grams based on minimum document frequency
+    if min_df > 1:
+        df = {ngram: freq for ngram, freq in df.items() if freq >= min_df}
+    
+    # Keep only the top-N most frequent n-grams
+    if keep_topN:
+        df = dict(sorted(df.items(), key=lambda item: item[1], reverse=True)[:keep_topN])
+    
+    # Create vocabulary of n-grams
+    vocab = set(df.keys())
+    
+    return vocab, df, ngram_counts
+​
+# Example usage:
+X_raw_train = train_df['text'].tolist()
+X_raw_dev = dev_df['text'].tolist()
+X_raw_test = test_df['text'].tolist()
+stop_words = ['a','in','on','at','and','or', 
+              'to', 'the', 'of', 'an', 'by', 
+              'as', 'is', 'was', 'were', 'been', 'be', 
+              'are','for', 'this', 'that', 'these', 'those', 'you', 'i', 'if',
+             'it', 'he', 'she', 'we', 'they', 'will', 'have', 'has',
+              'do', 'did', 'can', 'could', 'who', 'which', 'what',
+              'but', 'not', 'there', 'no', 'does', 'not', 'so', 've', 'their',
+             'his', 'her', 'they', 'them', 'from', 'with', 'its']
+​
+vocab, df, ngram_counts = get_vocab(X_raw_train, ngram_range=(1, 3), stop_words=stop_words, min_df=2, keep_topN=1000)
+​
+print("Vocabulary size:", len(vocab))
+print("Document frequency of top 10 n-grams:", Counter(df).most_common(10))
+print("Raw frequency of top 10 n-grams:", ngram_counts.most_common(10))
+​
+Vocabulary size: 1000
+Document frequency of top 10 n-grams: [('reuters', 631), ('said', 432), ('tuesday', 413), ('wednesday', 344), ('new', 325), ('after', 295), ('ap', 275), ('athens', 245), ('monday', 221), ('first', 210)]
+Raw frequency of top 10 n-grams: [('reuters', 694), ('said', 440), ('tuesday', 415), ('new', 365), ('wednesday', 346), ('after', 304), ('athens', 293), ('ap', 276), ('monday', 221), ('first', 219)]
+Now you should use get_vocab to create your vocabulary and get document and raw frequencies of unigrams:
+
+# Print the structure of the training data dataframe
+print(train_df.info())
+print(train_df.head())
+print(train_df.columns)  # Add this line to check the column names
+
+# Extract the 'Text' data from the second column
+text_data = train_df['Text']
+
+# Update the dataframe with the 'Text' data
+train_df['Text'] = train_df['Class']
+
+# Update the dataframe with the 'Class' data
+train_df['Class'] = text_data
+
+# Verify the updated dataframe
+print(train_df.head())
+
+# Generate the vocabulary
+vocab, doc_freq, ngram_counts = get_vocab(train_df['Text'], ngram_range=ngram_range, min_df=min_df, keep_topN=keep_topN, stop_words=stop_words)
+
+print("Vocabulary:", vocab)
+print("Document Frequencies:", doc_freq)
+print("N-gram Counts:", ngram_counts)
+# Example usage:
+X_raw_train = train_df['text'].tolist()
+​
+# Create vocabulary and obtain document and raw frequencies of unigrams
+vocab_unigrams, df_unigrams, ngram_counts_unigrams = get_vocab(X_raw_train, ngram_range=(1, 1), stop_words=stop_words, min_df=2, keep_topN=1000)
+​
+print("Vocabulary size (Unigrams):", len(vocab_unigrams))
+print("Document frequency of top 10 unigrams:", Counter(df_unigrams).most_common(10))
+print("Raw frequency of top 10 unigrams:", ngram_counts_unigrams.most_common(10))
+​
+Vocabulary size (Unigrams): 1000
+Document frequency of top 10 unigrams: [('reuters', 631), ('said', 432), ('tuesday', 413), ('wednesday', 344), ('new', 325), ('after', 295), ('ap', 275), ('athens', 245), ('monday', 221), ('first', 210)]
+Raw frequency of top 10 unigrams: [('reuters', 694), ('said', 440), ('tuesday', 415), ('new', 365), ('wednesday', 346), ('after', 304), ('athens', 293), ('ap', 276), ('monday', 221), ('first', 219)]
+Then, you need to create vocabulary id -> word and word -> vocabulary id dictionaries for reference:
+
+def create_vocab_mappings(vocab):
+    id_to_word = {}
+    word_to_id = {}
+    
+    # Assign a unique ID to each word in the vocabulary
+    for i, word in enumerate(vocab):
+        id_to_word[i] = word
+        word_to_id[word] = i
+    
+    return id_to_word, word_to_id
+​
+# Example usage:
+id_to_word_unigrams, word_to_id_unigrams = create_vocab_mappings(vocab_unigrams)
+​
+print("ID to Word Mapping (Unigrams):", id_to_word_unigrams)
+print("Word to ID Mapping (Unigrams):", word_to_id_unigrams)
+​
+ID to Word Mapping (Unigrams): {0: 'last', 1: 'roger', 2: 'practice', 3: 'venezuelan', 4: 'puerto', 5: 'vijay', 6: 'likely', 7: 'level', 8: 'august', 9: 'bank', 10: 'quest', 11: 'today', 12: 'round', 13: 'committee', 14: 'points', 15: 'contract', 16: 'african', 17: 'stock', 18: 'australian', 19: 'hundreds', 20: 'phone', 21: 'increase', 22: 'most', 23: 'slashed', 24: 'attack', 25: 'swimmer', 26: 'power', 27: 'such', 28: 'holding', 29: 'first', 30: 'freestyle', 31: 'late', 32: 'road', 33: 'cut', 34: 'key', 35: 'getting', 36: 'national', 37: 'filed', 38: 'wing', 39: 'global', 40: 'major', 41: 'vault', 42: 'evening', 43: 'since', 44: 'than', 45: 'forecast', 46: 'own', 47: 'convention', 48: 'leading', 49: 'long', 50: 'housing', 51: 'regulators', 52: 'iverson', 53: 'dow', 54: 'holy', 55: 'per', 56: 'relief', 57: 'pick', 58: 'estimates', 59: 'bloomberg', 60: 'href', 61: 'innings', 62: 'group', 63: 'both', 64: 'making', 65: 'reserve', 66: 'looking', 67: 'said', 68: 'central', 69: 'fans', 70: 'approved', 71: 'leave', 72: 'stadium', 73: 'referendum', 74: 'tennis', 75: 'money', 76: 'demand', 77: 'gasoline', 78: 'weekend', 79: 'after', 80: 'failed', 81: 'capital', 82: 'line', 83: 'near', 84: 'here', 85: 'test', 86: 'jobs', 87: 'billiton', 88: 'ossetia', 89: 'close', 90: 'united', 91: 'andy', 92: 'during', 93: 'mass', 94: 'qualifying', 95: 'sales', 96: 'second', 97: 'term', 98: 'pitched', 99: 'consecutive', 100: 'yankees', 101: 'judo', 102: 'number', 103: 'boost', 104: 'rebels', 105: 'calif', 106: 'securities', 107: 'keep', 108: 'networks', 109: 'sharp', 110: 'australia', 111: 'montreal', 112: 'americans', 113: 'also', 114: 'leaders', 115: 'canadian', 116: 'storm', 117: 'italian', 118: 'political', 119: 'fraud', 120: 'doping', 121: 'agreed', 122: 'double', 123: 'fla', 124: 'good', 125: 'exchange', 126: 'five', 127: 'ltd', 128: 'beating', 129: 'price', 130: 'markets', 131: 'profit', 132: 'st', 133: 'work', 134: 'about', 135: 'drove', 136: 'soccer', 137: 'investigation', 138: 'street', 139: 'inflationary', 140: 'sunday', 141: 'because', 142: 'leader', 143: 'night', 144: 'deal', 145: 'european', 146: 'move', 147: 'television', 148: 'players', 149: 'left', 150: 'running', 151: 'india', 152: 'georgia', 153: 'panel', 154: 'athens', 155: 'september', 156: 'out', 157: 'spitz', 158: 'chief', 159: 'secretary', 160: 'companies', 161: 'find', 162: 'become', 163: 'asia', 164: 'report', 165: 'canada', 166: 'official', 167: 'make', 168: 'opposition', 169: 'www', 170: 'now', 171: 'months', 172: 'bush', 173: 'send', 174: 'wanted', 175: 'pro', 176: 'military', 177: 'percent', 178: 'man', 179: 'den', 180: 'sept', 181: 'gains', 182: 'drop', 183: 'break', 184: 'tests', 185: 'terrorism', 186: 'call', 187: 'past', 188: 'conflict', 189: 'olympia', 190: 'results', 191: 'russia', 192: 'president', 193: 'registration', 194: 'began', 195: 'appeal', 196: 'energy', 197: 'inc', 198: 'meter', 199: 'state', 200: 'continued', 201: 'internet', 202: 'fall', 203: 'reach', 204: 'maker', 205: 'come', 206: 'aug', 207: 'gold', 208: 'west', 209: 'potential', 210: 'under', 211: 'homes', 212: 'all', 213: 'while', 214: 'ahead', 215: 'may', 216: 'government', 217: 'troops', 218: 'province', 219: 'rising', 220: 'missing', 221: 'thursday', 222: 'best', 223: 'francisco', 224: 'northern', 225: 'corporate', 226: 'officials', 227: 'french', 228: 'wis', 229: 'residents', 230: 'angeles', 231: 'match', 232: 'investors', 233: 'right', 234: 'six', 235: 'golf', 236: 'action', 237: 'defending', 238: 'cash', 239: 'profits', 240: 'without', 241: 'four', 242: 'reported', 243: 'fund', 244: 'grew', 245: 'fired', 246: 'google', 247: 'knew', 248: 'bid', 249: 'paul', 250: 'american', 251: 'stores', 252: 'found', 253: 'computer', 254: 'asked', 255: 'reports', 256: 'palestinian', 257: 'czech', 258: 'lawsuit', 259: 'fullquote', 260: 'fresh', 261: 'starting', 262: 'rico', 263: 'south', 264: 'little', 265: 'katerina', 266: 'uprising', 267: 'nine', 268: 'rights', 269: 'early', 270: 'reuters', 271: 'auction', 272: 'fell', 273: 'israel', 274: 'surged', 275: 'water', 276: 'cause', 277: 'when', 278: 'pulled', 279: 'meet', 280: 'case', 281: 'later', 282: 'dollar', 283: 'financial', 284: 'baseball', 285: 'oil', 286: 'return', 287: 'closely', 288: 'caracas', 289: 'florida', 290: 'month', 291: 'prime', 292: 'growing', 293: 'http', 294: 'tie', 295: 'care', 296: 'factories', 297: 'credit', 298: 'end', 299: 'team', 300: 'exporters', 301: 'los', 302: 'democratic', 303: 'away', 304: 'union', 305: 'draw', 306: 'billion', 307: 'defense', 308: 'town', 309: 'recent', 310: 'island', 311: 'track', 312: 'year', 313: 'picked', 314: 'lt', 315: 'posted', 316: 'largest', 317: 'many', 318: 'germany', 319: 'finally', 320: 'foot', 321: 'guard', 322: 'grand', 323: 'retailer', 324: 'engine', 325: 'sources', 326: 'businesses', 327: 'food', 328: 'sharply', 329: 'setting', 330: 'former', 331: 'blair', 332: 'construction', 333: 'accounting', 334: 'executive', 335: 'david', 336: 'congolese', 337: 'silvio', 338: 'medical', 339: 'top', 340: 'office', 341: 'reduced', 342: 'iraqi', 343: 'rule', 344: 'press', 345: 'worries', 346: 'effective', 347: 'dropped', 348: 'delegates', 349: 'mart', 350: 'support', 351: 'complete', 352: 'cup', 353: 'general', 354: 'orioles', 355: 'chicago', 356: 'philadelphia', 357: 'giant', 358: 'knocked', 359: 'compete', 360: 'fears', 361: 'club', 362: 'holiest', 363: 'hitter', 364: 'week', 365: 'need', 366: 'trying', 367: 'champion', 368: 'decided', 369: 'well', 370: 'intelligence', 371: 'sell', 372: 'according', 373: 'building', 374: 'hoping', 375: 'economy', 376: 'take', 377: 'injury', 378: 'wal', 379: 'campaign', 380: 'heavy', 381: 'sun', 382: 'pull', 383: 'murder', 384: 'called', 385: 'chain', 386: 'swimming', 387: 'soaring', 388: 'ite', 389: 'refugees', 390: 'strong', 391: 'radical', 392: 'cost', 393: 'events', 394: 'moqtada', 395: 'started', 396: 'losing', 397: 'militiamen', 398: 'authorities', 399: 'allowed', 400: 'like', 401: 'eight', 402: 'web', 403: 'public', 404: 'injured', 405: 'share', 406: 'firms', 407: 'lead', 408: 'thousands', 409: 'trading', 410: 'militants', 411: 'jumped', 412: 'korea', 413: 'years', 414: 'sox', 415: 'afghanistan', 416: 'strike', 417: 'hard', 418: 'applied', 419: 'punta', 420: 'won', 421: 'san', 422: 'cardinals', 423: 'program', 424: 'low', 425: 'went', 426: 'kabul', 427: 'where', 428: 'target', 429: 'should', 430: 'green', 431: 'history', 432: 'statement', 433: 'africa', 434: 'gt', 435: 'better', 436: 'venezuela', 437: 'closer', 438: 'arrived', 439: 'winning', 440: 'being', 441: 'homered', 442: 'al', 443: 'despite', 444: 'career', 445: 'darfur', 446: 'plans', 447: 'costs', 448: 'championship', 449: 'kenteris', 450: 'advanced', 451: 'media', 452: 'showing', 453: 'made', 454: 'competition', 455: 'historic', 456: 'enough', 457: 'big', 458: 'economic', 459: 'net', 460: 'nikkei', 461: 'shiite', 462: 'country', 463: 'event', 464: 'wholesale', 465: 'workers', 466: 'pope', 467: 'hold', 468: 'inflation', 469: 'plan', 470: 'anticipated', 471: 'into', 472: 'old', 473: 'terrorist', 474: 'explosion', 475: 'bomb', 476: 'peace', 477: 'futures', 478: 'shrine', 479: 'changed', 480: 'israeli', 481: 'north', 482: 'going', 483: 'million', 484: 'singapore', 485: 'british', 486: 'region', 487: 'qaeda', 488: 'federal', 489: 'individual', 490: 'manager', 491: 'sharon', 492: 'japan', 493: 'performance', 494: 'basketball', 495: 'biggest', 496: 'nearly', 497: 'talks', 498: 'games', 499: 'awaited', 500: 'straight', 501: 'income', 502: 'medals', 503: 'crude', 504: 'miss', 505: 'drugs', 506: 'lost', 507: 'haven', 508: 'rebound', 509: 'washington', 510: 'bill', 511: 'hour', 512: 'torri', 513: 'aspx', 514: 'interim', 515: 'lines', 516: 'quot', 517: 'killing', 518: 'mortgage', 519: 'jersey', 520: 'berlusconi', 521: 'white', 522: 'announced', 523: 'islamic', 524: 'approval', 525: 'lowe', 526: 'next', 527: 'health', 528: 'coach', 529: 'morning', 530: 'hospital', 531: 'olympic', 532: 'quarter', 533: 'john', 534: 'released', 535: 'suspects', 536: 'tournament', 537: 'before', 538: 'trial', 539: 'gaza', 540: 'star', 541: 'get', 542: 'france', 543: 'loss', 544: 'indians', 545: 'latest', 546: 'presidential', 547: 'jewish', 548: 'beat', 549: 'jose', 550: 'market', 551: 'iraq', 552: 'chavez', 553: 'terror', 554: 'ancient', 555: 'republican', 556: 'funds', 557: 'highs', 558: 'series', 559: 'pushed', 560: 'increased', 561: 'one', 562: 'agency', 563: 'information', 564: 'shi', 565: 'outlook', 566: 'sudan', 567: 'olympics', 568: 'shooting', 569: 'friday', 570: 'alleged', 571: 'expected', 572: 'service', 573: 'face', 574: 'battle', 575: 'association', 576: 'equity', 577: 'way', 578: 'fighting', 579: 'captain', 580: 'raised', 581: 'minnesota', 582: 'seven', 583: 'thanou', 584: 'boosted', 585: 'china', 586: 'anti', 587: 'network', 588: 'saying', 589: 'free', 590: 'much', 591: 'democracy', 592: 'death', 593: 'gorda', 594: 'continue', 595: 'settlements', 596: 'march', 597: 'jerusalem', 598: 'agreement', 599: 'family', 600: 'sydney', 601: 'least', 602: 'withdrew', 603: 'pga', 604: 'quickinfo', 605: 'turned', 606: 'louis', 607: 'afp', 608: 'delegation', 609: 'annual', 610: 'toward', 611: 'given', 612: 'supply', 613: 'pressure', 614: 'sold', 615: 'tokyo', 616: 'roddick', 617: 'cleric', 618: 'forces', 619: 'soldiers', 620: 'interest', 621: 'militia', 622: 'outside', 623: 'medal', 624: 'say', 625: 'equipment', 626: 'runs', 627: 'cuts', 628: 'un', 629: 'children', 630: 'co', 631: 'help', 632: 'ariel', 633: 'done', 634: 'up', 635: 'including', 636: 'party', 637: 'weeks', 638: 'firm', 639: 'short', 640: 'ticker', 641: 'data', 642: 'charged', 643: 'less', 644: 'died', 645: 'wife', 646: 'days', 647: 'based', 648: 'third', 649: 'due', 650: 'car', 651: 'jump', 652: 'still', 653: 'fourth', 654: 'even', 655: 'nation', 656: 'run', 657: 'opened', 658: 'play', 659: 'received', 660: 'store', 661: 'became', 662: 'trade', 663: 'july', 664: 'hamm', 665: 'avoid', 666: 'great', 667: 'nuclear', 668: 'clashes', 669: 'atlanta', 670: 'process', 671: 'conspiracy', 672: 'meters', 673: 'senior', 674: 'two', 675: 'rose', 676: 'would', 677: 'research', 678: 'try', 679: 'poor', 680: 'violence', 681: 'claim', 682: 'decision', 683: 'williams', 684: 'show', 685: 'again', 686: 'investment', 687: 'operating', 688: 'nortel', 689: 'missed', 690: 'begin', 691: 'accused', 692: 'whether', 693: 'june', 694: 'earlier', 695: 'amid', 696: 'recall', 697: 'products', 698: 'higher', 699: 'mobile', 700: 'league', 701: 'kong', 702: 'jones', 703: 'led', 704: 'didn', 705: 'set', 706: 'concern', 707: 'van', 708: 'pakistan', 709: 'rates', 710: 'twins', 711: 'xinhuanet', 712: 'against', 713: 'huge', 714: 'used', 715: 'new', 716: 'start', 717: 'other', 718: 'decline', 719: 'yet', 720: 'impact', 721: 'caused', 722: 'materials', 723: 'down', 724: 'game', 725: 'wednesday', 726: 'place', 727: 'held', 728: 'teams', 729: 'conference', 730: 'operator', 731: 'gave', 732: 'nations', 733: 'consumer', 734: 'war', 735: 'prices', 736: 'helped', 737: 'phelps', 738: 'air', 739: 'area', 740: 'check', 741: 'voted', 742: 'crash', 743: 'through', 744: 'release', 745: 'bhp', 746: 'full', 747: 'chip', 748: 'day', 749: 'any', 750: 'sixth', 751: 'negotiations', 752: 'off', 753: 'charley', 754: 'republic', 755: 'offering', 756: 'bay', 757: 'rebounded', 758: 'charge', 759: 'center', 760: 'members', 761: 'shares', 762: 'yukos', 763: 'pay', 764: 'card', 765: 'relay', 766: 'monday', 767: 'shot', 768: 'inning', 769: 'teenager', 770: 'men', 771: 'having', 772: 'us', 773: 'greece', 774: 'cents', 775: 'refused', 776: 'buy', 777: 'more', 778: 'part', 779: 'services', 780: 'york', 781: 'toronto', 782: 'rangers', 783: 'depot', 784: 'half', 785: 'department', 786: 'cleveland', 787: 'charges', 788: 'blue', 789: 'then', 790: 'mutual', 791: 'search', 792: 'killed', 793: 'vote', 794: 'life', 795: 'america', 796: 'among', 797: 'told', 798: 'foreign', 799: 'host', 800: 'amp', 801: 'claims', 802: 'burundi', 803: 'high', 804: 'says', 805: 'improvement', 806: 'showed', 807: 'britain', 808: 'tuesday', 809: 'offer', 810: 'appeared', 811: 'company', 812: 'bronze', 813: 'bought', 814: 'religious', 815: 'labor', 816: 'thorpe', 817: 'asian', 818: 'edwards', 819: 'cp', 820: 'fire', 821: 'suspension', 822: 'barrel', 823: 'industry', 824: 'kostas', 825: 'put', 826: 'another', 827: 'same', 828: 'taking', 829: 'hearing', 830: 'behind', 831: 'how', 832: 'nfl', 833: 'got', 834: 'giving', 835: 'win', 836: 'boston', 837: 'camp', 838: 'crisis', 839: 'cincinnati', 840: 'supplies', 841: 'exports', 842: 'business', 843: 'following', 844: 'russian', 845: 'him', 846: 'insurance', 847: 'facing', 848: 'rebel', 849: 'court', 850: 'earnings', 851: 'fifth', 852: 'international', 853: 'hit', 854: 'see', 855: 'figures', 856: 'real', 857: 'world', 858: 'people', 859: 'urged', 860: 'hotel', 861: 'tax', 862: 'stocks', 863: 'sprinters', 864: 'possible', 865: 'athletes', 866: 'watched', 867: 'moved', 868: 'city', 869: 'home', 870: 'backed', 871: 'army', 872: 'arrested', 873: 'giants', 874: 'uk', 875: 'far', 876: 'force', 877: 'wall', 878: 'course', 879: 'states', 880: 'sports', 881: 'only', 882: 'baltimore', 883: 'election', 884: 'growth', 885: 'federer', 886: 'yesterday', 887: 'rise', 888: 'kerry', 889: 'news', 890: 'ever', 891: 'meeting', 892: 'sent', 893: 'associated', 894: 'average', 895: 'singh', 896: 'najaf', 897: 'technology', 898: 'defensive', 899: 'hurricane', 900: 'eased', 901: 'initial', 902: 'open', 903: 'silver', 904: 'rival', 905: 'iran', 906: 'afghan', 907: 'between', 908: 'baghdad', 909: 'corp', 910: 'england', 911: 'back', 912: 'final', 913: 'london', 914: 'michael', 915: 'some', 916: 'range', 917: 'euro', 918: 'took', 919: 'go', 920: 'gymnastics', 921: 'houston', 922: 'quarterly', 923: 'give', 924: 'allen', 925: 'europe', 926: 'chinese', 927: 'hugo', 928: 'time', 929: 'dallas', 930: 'drug', 931: 'red', 932: 'summer', 933: 'sprinter', 934: 'com', 935: 'mark', 936: 'debt', 937: 'selling', 938: 'came', 939: 'ipo', 940: 'greek', 941: 'lower', 942: 'until', 943: 'palestinians', 944: 're', 945: 'opening', 946: 'ended', 947: 'ninth', 948: 'over', 949: 'head', 950: 'insurers', 951: 'field', 952: 'profile', 953: 'efforts', 954: 'southern', 955: 'victory', 956: 'minister', 957: 'investor', 958: 'others', 959: 'saturday', 960: 'tony', 961: 'concerns', 962: 'beijing', 963: 'police', 964: 'pool', 965: 'had', 966: 'security', 967: 'surgery', 968: 'future', 969: 'record', 970: 'season', 971: 'might', 972: 'visit', 973: 'look', 974: 'popular', 975: 'mike', 976: 'football', 977: 'three', 978: 'halliburton', 979: 'title', 980: 'chance', 981: 'western', 982: 'around', 983: 'survived', 984: 'dead', 985: 'women', 986: 'across', 987: 'hours', 988: 'private', 989: 'quote', 990: 'sadr', 991: 'race', 992: 'player', 993: 'japanese', 994: 'commission', 995: 'texas', 996: 'just', 997: 'ian', 998: 'ago', 999: 'ap'}
+Word to ID Mapping (Unigrams): {'last': 0, 'roger': 1, 'practice': 2, 'venezuelan': 3, 'puerto': 4, 'vijay': 5, 'likely': 6, 'level': 7, 'august': 8, 'bank': 9, 'quest': 10, 'today': 11, 'round': 12, 'committee': 13, 'points': 14, 'contract': 15, 'african': 16, 'stock': 17, 'australian': 18, 'hundreds': 19, 'phone': 20, 'increase': 21, 'most': 22, 'slashed': 23, 'attack': 24, 'swimmer': 25, 'power': 26, 'such': 27, 'holding': 28, 'first': 29, 'freestyle': 30, 'late': 31, 'road': 32, 'cut': 33, 'key': 34, 'getting': 35, 'national': 36, 'filed': 37, 'wing': 38, 'global': 39, 'major': 40, 'vault': 41, 'evening': 42, 'since': 43, 'than': 44, 'forecast': 45, 'own': 46, 'convention': 47, 'leading': 48, 'long': 49, 'housing': 50, 'regulators': 51, 'iverson': 52, 'dow': 53, 'holy': 54, 'per': 55, 'relief': 56, 'pick': 57, 'estimates': 58, 'bloomberg': 59, 'href': 60, 'innings': 61, 'group': 62, 'both': 63, 'making': 64, 'reserve': 65, 'looking': 66, 'said': 67, 'central': 68, 'fans': 69, 'approved': 70, 'leave': 71, 'stadium': 72, 'referendum': 73, 'tennis': 74, 'money': 75, 'demand': 76, 'gasoline': 77, 'weekend': 78, 'after': 79, 'failed': 80, 'capital': 81, 'line': 82, 'near': 83, 'here': 84, 'test': 85, 'jobs': 86, 'billiton': 87, 'ossetia': 88, 'close': 89, 'united': 90, 'andy': 91, 'during': 92, 'mass': 93, 'qualifying': 94, 'sales': 95, 'second': 96, 'term': 97, 'pitched': 98, 'consecutive': 99, 'yankees': 100, 'judo': 101, 'number': 102, 'boost': 103, 'rebels': 104, 'calif': 105, 'securities': 106, 'keep': 107, 'networks': 108, 'sharp': 109, 'australia': 110, 'montreal': 111, 'americans': 112, 'also': 113, 'leaders': 114, 'canadian': 115, 'storm': 116, 'italian': 117, 'political': 118, 'fraud': 119, 'doping': 120, 'agreed': 121, 'double': 122, 'fla': 123, 'good': 124, 'exchange': 125, 'five': 126, 'ltd': 127, 'beating': 128, 'price': 129, 'markets': 130, 'profit': 131, 'st': 132, 'work': 133, 'about': 134, 'drove': 135, 'soccer': 136, 'investigation': 137, 'street': 138, 'inflationary': 139, 'sunday': 140, 'because': 141, 'leader': 142, 'night': 143, 'deal': 144, 'european': 145, 'move': 146, 'television': 147, 'players': 148, 'left': 149, 'running': 150, 'india': 151, 'georgia': 152, 'panel': 153, 'athens': 154, 'september': 155, 'out': 156, 'spitz': 157, 'chief': 158, 'secretary': 159, 'companies': 160, 'find': 161, 'become': 162, 'asia': 163, 'report': 164, 'canada': 165, 'official': 166, 'make': 167, 'opposition': 168, 'www': 169, 'now': 170, 'months': 171, 'bush': 172, 'send': 173, 'wanted': 174, 'pro': 175, 'military': 176, 'percent': 177, 'man': 178, 'den': 179, 'sept': 180, 'gains': 181, 'drop': 182, 'break': 183, 'tests': 184, 'terrorism': 185, 'call': 186, 'past': 187, 'conflict': 188, 'olympia': 189, 'results': 190, 'russia': 191, 'president': 192, 'registration': 193, 'began': 194, 'appeal': 195, 'energy': 196, 'inc': 197, 'meter': 198, 'state': 199, 'continued': 200, 'internet': 201, 'fall': 202, 'reach': 203, 'maker': 204, 'come': 205, 'aug': 206, 'gold': 207, 'west': 208, 'potential': 209, 'under': 210, 'homes': 211, 'all': 212, 'while': 213, 'ahead': 214, 'may': 215, 'government': 216, 'troops': 217, 'province': 218, 'rising': 219, 'missing': 220, 'thursday': 221, 'best': 222, 'francisco': 223, 'northern': 224, 'corporate': 225, 'officials': 226, 'french': 227, 'wis': 228, 'residents': 229, 'angeles': 230, 'match': 231, 'investors': 232, 'right': 233, 'six': 234, 'golf': 235, 'action': 236, 'defending': 237, 'cash': 238, 'profits': 239, 'without': 240, 'four': 241, 'reported': 242, 'fund': 243, 'grew': 244, 'fired': 245, 'google': 246, 'knew': 247, 'bid': 248, 'paul': 249, 'american': 250, 'stores': 251, 'found': 252, 'computer': 253, 'asked': 254, 'reports': 255, 'palestinian': 256, 'czech': 257, 'lawsuit': 258, 'fullquote': 259, 'fresh': 260, 'starting': 261, 'rico': 262, 'south': 263, 'little': 264, 'katerina': 265, 'uprising': 266, 'nine': 267, 'rights': 268, 'early': 269, 'reuters': 270, 'auction': 271, 'fell': 272, 'israel': 273, 'surged': 274, 'water': 275, 'cause': 276, 'when': 277, 'pulled': 278, 'meet': 279, 'case': 280, 'later': 281, 'dollar': 282, 'financial': 283, 'baseball': 284, 'oil': 285, 'return': 286, 'closely': 287, 'caracas': 288, 'florida': 289, 'month': 290, 'prime': 291, 'growing': 292, 'http': 293, 'tie': 294, 'care': 295, 'factories': 296, 'credit': 297, 'end': 298, 'team': 299, 'exporters': 300, 'los': 301, 'democratic': 302, 'away': 303, 'union': 304, 'draw': 305, 'billion': 306, 'defense': 307, 'town': 308, 'recent': 309, 'island': 310, 'track': 311, 'year': 312, 'picked': 313, 'lt': 314, 'posted': 315, 'largest': 316, 'many': 317, 'germany': 318, 'finally': 319, 'foot': 320, 'guard': 321, 'grand': 322, 'retailer': 323, 'engine': 324, 'sources': 325, 'businesses': 326, 'food': 327, 'sharply': 328, 'setting': 329, 'former': 330, 'blair': 331, 'construction': 332, 'accounting': 333, 'executive': 334, 'david': 335, 'congolese': 336, 'silvio': 337, 'medical': 338, 'top': 339, 'office': 340, 'reduced': 341, 'iraqi': 342, 'rule': 343, 'press': 344, 'worries': 345, 'effective': 346, 'dropped': 347, 'delegates': 348, 'mart': 349, 'support': 350, 'complete': 351, 'cup': 352, 'general': 353, 'orioles': 354, 'chicago': 355, 'philadelphia': 356, 'giant': 357, 'knocked': 358, 'compete': 359, 'fears': 360, 'club': 361, 'holiest': 362, 'hitter': 363, 'week': 364, 'need': 365, 'trying': 366, 'champion': 367, 'decided': 368, 'well': 369, 'intelligence': 370, 'sell': 371, 'according': 372, 'building': 373, 'hoping': 374, 'economy': 375, 'take': 376, 'injury': 377, 'wal': 378, 'campaign': 379, 'heavy': 380, 'sun': 381, 'pull': 382, 'murder': 383, 'called': 384, 'chain': 385, 'swimming': 386, 'soaring': 387, 'ite': 388, 'refugees': 389, 'strong': 390, 'radical': 391, 'cost': 392, 'events': 393, 'moqtada': 394, 'started': 395, 'losing': 396, 'militiamen': 397, 'authorities': 398, 'allowed': 399, 'like': 400, 'eight': 401, 'web': 402, 'public': 403, 'injured': 404, 'share': 405, 'firms': 406, 'lead': 407, 'thousands': 408, 'trading': 409, 'militants': 410, 'jumped': 411, 'korea': 412, 'years': 413, 'sox': 414, 'afghanistan': 415, 'strike': 416, 'hard': 417, 'applied': 418, 'punta': 419, 'won': 420, 'san': 421, 'cardinals': 422, 'program': 423, 'low': 424, 'went': 425, 'kabul': 426, 'where': 427, 'target': 428, 'should': 429, 'green': 430, 'history': 431, 'statement': 432, 'africa': 433, 'gt': 434, 'better': 435, 'venezuela': 436, 'closer': 437, 'arrived': 438, 'winning': 439, 'being': 440, 'homered': 441, 'al': 442, 'despite': 443, 'career': 444, 'darfur': 445, 'plans': 446, 'costs': 447, 'championship': 448, 'kenteris': 449, 'advanced': 450, 'media': 451, 'showing': 452, 'made': 453, 'competition': 454, 'historic': 455, 'enough': 456, 'big': 457, 'economic': 458, 'net': 459, 'nikkei': 460, 'shiite': 461, 'country': 462, 'event': 463, 'wholesale': 464, 'workers': 465, 'pope': 466, 'hold': 467, 'inflation': 468, 'plan': 469, 'anticipated': 470, 'into': 471, 'old': 472, 'terrorist': 473, 'explosion': 474, 'bomb': 475, 'peace': 476, 'futures': 477, 'shrine': 478, 'changed': 479, 'israeli': 480, 'north': 481, 'going': 482, 'million': 483, 'singapore': 484, 'british': 485, 'region': 486, 'qaeda': 487, 'federal': 488, 'individual': 489, 'manager': 490, 'sharon': 491, 'japan': 492, 'performance': 493, 'basketball': 494, 'biggest': 495, 'nearly': 496, 'talks': 497, 'games': 498, 'awaited': 499, 'straight': 500, 'income': 501, 'medals': 502, 'crude': 503, 'miss': 504, 'drugs': 505, 'lost': 506, 'haven': 507, 'rebound': 508, 'washington': 509, 'bill': 510, 'hour': 511, 'torri': 512, 'aspx': 513, 'interim': 514, 'lines': 515, 'quot': 516, 'killing': 517, 'mortgage': 518, 'jersey': 519, 'berlusconi': 520, 'white': 521, 'announced': 522, 'islamic': 523, 'approval': 524, 'lowe': 525, 'next': 526, 'health': 527, 'coach': 528, 'morning': 529, 'hospital': 530, 'olympic': 531, 'quarter': 532, 'john': 533, 'released': 534, 'suspects': 535, 'tournament': 536, 'before': 537, 'trial': 538, 'gaza': 539, 'star': 540, 'get': 541, 'france': 542, 'loss': 543, 'indians': 544, 'latest': 545, 'presidential': 546, 'jewish': 547, 'beat': 548, 'jose': 549, 'market': 550, 'iraq': 551, 'chavez': 552, 'terror': 553, 'ancient': 554, 'republican': 555, 'funds': 556, 'highs': 557, 'series': 558, 'pushed': 559, 'increased': 560, 'one': 561, 'agency': 562, 'information': 563, 'shi': 564, 'outlook': 565, 'sudan': 566, 'olympics': 567, 'shooting': 568, 'friday': 569, 'alleged': 570, 'expected': 571, 'service': 572, 'face': 573, 'battle': 574, 'association': 575, 'equity': 576, 'way': 577, 'fighting': 578, 'captain': 579, 'raised': 580, 'minnesota': 581, 'seven': 582, 'thanou': 583, 'boosted': 584, 'china': 585, 'anti': 586, 'network': 587, 'saying': 588, 'free': 589, 'much': 590, 'democracy': 591, 'death': 592, 'gorda': 593, 'continue': 594, 'settlements': 595, 'march': 596, 'jerusalem': 597, 'agreement': 598, 'family': 599, 'sydney': 600, 'least': 601, 'withdrew': 602, 'pga': 603, 'quickinfo': 604, 'turned': 605, 'louis': 606, 'afp': 607, 'delegation': 608, 'annual': 609, 'toward': 610, 'given': 611, 'supply': 612, 'pressure': 613, 'sold': 614, 'tokyo': 615, 'roddick': 616, 'cleric': 617, 'forces': 618, 'soldiers': 619, 'interest': 620, 'militia': 621, 'outside': 622, 'medal': 623, 'say': 624, 'equipment': 625, 'runs': 626, 'cuts': 627, 'un': 628, 'children': 629, 'co': 630, 'help': 631, 'ariel': 632, 'done': 633, 'up': 634, 'including': 635, 'party': 636, 'weeks': 637, 'firm': 638, 'short': 639, 'ticker': 640, 'data': 641, 'charged': 642, 'less': 643, 'died': 644, 'wife': 645, 'days': 646, 'based': 647, 'third': 648, 'due': 649, 'car': 650, 'jump': 651, 'still': 652, 'fourth': 653, 'even': 654, 'nation': 655, 'run': 656, 'opened': 657, 'play': 658, 'received': 659, 'store': 660, 'became': 661, 'trade': 662, 'july': 663, 'hamm': 664, 'avoid': 665, 'great': 666, 'nuclear': 667, 'clashes': 668, 'atlanta': 669, 'process': 670, 'conspiracy': 671, 'meters': 672, 'senior': 673, 'two': 674, 'rose': 675, 'would': 676, 'research': 677, 'try': 678, 'poor': 679, 'violence': 680, 'claim': 681, 'decision': 682, 'williams': 683, 'show': 684, 'again': 685, 'investment': 686, 'operating': 687, 'nortel': 688, 'missed': 689, 'begin': 690, 'accused': 691, 'whether': 692, 'june': 693, 'earlier': 694, 'amid': 695, 'recall': 696, 'products': 697, 'higher': 698, 'mobile': 699, 'league': 700, 'kong': 701, 'jones': 702, 'led': 703, 'didn': 704, 'set': 705, 'concern': 706, 'van': 707, 'pakistan': 708, 'rates': 709, 'twins': 710, 'xinhuanet': 711, 'against': 712, 'huge': 713, 'used': 714, 'new': 715, 'start': 716, 'other': 717, 'decline': 718, 'yet': 719, 'impact': 720, 'caused': 721, 'materials': 722, 'down': 723, 'game': 724, 'wednesday': 725, 'place': 726, 'held': 727, 'teams': 728, 'conference': 729, 'operator': 730, 'gave': 731, 'nations': 732, 'consumer': 733, 'war': 734, 'prices': 735, 'helped': 736, 'phelps': 737, 'air': 738, 'area': 739, 'check': 740, 'voted': 741, 'crash': 742, 'through': 743, 'release': 744, 'bhp': 745, 'full': 746, 'chip': 747, 'day': 748, 'any': 749, 'sixth': 750, 'negotiations': 751, 'off': 752, 'charley': 753, 'republic': 754, 'offering': 755, 'bay': 756, 'rebounded': 757, 'charge': 758, 'center': 759, 'members': 760, 'shares': 761, 'yukos': 762, 'pay': 763, 'card': 764, 'relay': 765, 'monday': 766, 'shot': 767, 'inning': 768, 'teenager': 769, 'men': 770, 'having': 771, 'us': 772, 'greece': 773, 'cents': 774, 'refused': 775, 'buy': 776, 'more': 777, 'part': 778, 'services': 779, 'york': 780, 'toronto': 781, 'rangers': 782, 'depot': 783, 'half': 784, 'department': 785, 'cleveland': 786, 'charges': 787, 'blue': 788, 'then': 789, 'mutual': 790, 'search': 791, 'killed': 792, 'vote': 793, 'life': 794, 'america': 795, 'among': 796, 'told': 797, 'foreign': 798, 'host': 799, 'amp': 800, 'claims': 801, 'burundi': 802, 'high': 803, 'says': 804, 'improvement': 805, 'showed': 806, 'britain': 807, 'tuesday': 808, 'offer': 809, 'appeared': 810, 'company': 811, 'bronze': 812, 'bought': 813, 'religious': 814, 'labor': 815, 'thorpe': 816, 'asian': 817, 'edwards': 818, 'cp': 819, 'fire': 820, 'suspension': 821, 'barrel': 822, 'industry': 823, 'kostas': 824, 'put': 825, 'another': 826, 'same': 827, 'taking': 828, 'hearing': 829, 'behind': 830, 'how': 831, 'nfl': 832, 'got': 833, 'giving': 834, 'win': 835, 'boston': 836, 'camp': 837, 'crisis': 838, 'cincinnati': 839, 'supplies': 840, 'exports': 841, 'business': 842, 'following': 843, 'russian': 844, 'him': 845, 'insurance': 846, 'facing': 847, 'rebel': 848, 'court': 849, 'earnings': 850, 'fifth': 851, 'international': 852, 'hit': 853, 'see': 854, 'figures': 855, 'real': 856, 'world': 857, 'people': 858, 'urged': 859, 'hotel': 860, 'tax': 861, 'stocks': 862, 'sprinters': 863, 'possible': 864, 'athletes': 865, 'watched': 866, 'moved': 867, 'city': 868, 'home': 869, 'backed': 870, 'army': 871, 'arrested': 872, 'giants': 873, 'uk': 874, 'far': 875, 'force': 876, 'wall': 877, 'course': 878, 'states': 879, 'sports': 880, 'only': 881, 'baltimore': 882, 'election': 883, 'growth': 884, 'federer': 885, 'yesterday': 886, 'rise': 887, 'kerry': 888, 'news': 889, 'ever': 890, 'meeting': 891, 'sent': 892, 'associated': 893, 'average': 894, 'singh': 895, 'najaf': 896, 'technology': 897, 'defensive': 898, 'hurricane': 899, 'eased': 900, 'initial': 901, 'open': 902, 'silver': 903, 'rival': 904, 'iran': 905, 'afghan': 906, 'between': 907, 'baghdad': 908, 'corp': 909, 'england': 910, 'back': 911, 'final': 912, 'london': 913, 'michael': 914, 'some': 915, 'range': 916, 'euro': 917, 'took': 918, 'go': 919, 'gymnastics': 920, 'houston': 921, 'quarterly': 922, 'give': 923, 'allen': 924, 'europe': 925, 'chinese': 926, 'hugo': 927, 'time': 928, 'dallas': 929, 'drug': 930, 'red': 931, 'summer': 932, 'sprinter': 933, 'com': 934, 'mark': 935, 'debt': 936, 'selling': 937, 'came': 938, 'ipo': 939, 'greek': 940, 'lower': 941, 'until': 942, 'palestinians': 943, 're': 944, 'opening': 945, 'ended': 946, 'ninth': 947, 'over': 948, 'head': 949, 'insurers': 950, 'field': 951, 'profile': 952, 'efforts': 953, 'southern': 954, 'victory': 955, 'minister': 956, 'investor': 957, 'others': 958, 'saturday': 959, 'tony': 960, 'concerns': 961, 'beijing': 962, 'police': 963, 'pool': 964, 'had': 965, 'security': 966, 'surgery': 967, 'future': 968, 'record': 969, 'season': 970, 'might': 971, 'visit': 972, 'look': 973, 'popular': 974, 'mike': 975, 'football': 976, 'three': 977, 'halliburton': 978, 'title': 979, 'chance': 980, 'western': 981, 'around': 982, 'survived': 983, 'dead': 984, 'women': 985, 'across': 986, 'hours': 987, 'private': 988, 'quote': 989, 'sadr': 990, 'race': 991, 'player': 992, 'japanese': 993, 'commission': 994, 'texas': 995, 'just': 996, 'ian': 997, 'ago': 998, 'ap': 999}
+Convert the list of unigrams into a list of vocabulary indices
+Storing actual one-hot vectors into memory for all words in the entire data set is prohibitive. Instead, we will store word indices in the vocabulary and look-up the weight matrix. This is equivalent of doing a dot product between an one-hot vector and the weight matrix.
+
+First, represent documents in train, dev and test sets as lists of words in the vocabulary:
+
+import numpy as np
+​
+def represent_documents_as_indices(documents, word_to_id):
+    documents_indices = []
+    for document in documents:
+        document_indices = []
+        words = document.split()
+        for word in words:
+            if word in word_to_id:
+                document_indices.append(word_to_id[word])
+        documents_indices.append(document_indices)
+    return documents_indices
+Then convert them into lists of indices in the vocabulary:
+
+print("Train Document Indices:")
+for i in range(5):
+    print(X_train_indices[i])
+​
+print("\nDev Document Indices:")
+for i in range(5):
+    print(X_dev_indices[i])
+​
+print("\nTest Document Indices:")
+for i in range(5):
+    print(X_test_indices[i])
+Train Document Indices:
+[605, 156, 793, 455, 923, 845, 715, 526]
+[963, 714, 275, 601, 216, 682, 777, 217]
+[194, 416, 966, 956, 67, 295]
+[918, 726, 486, 582]
+[619, 471, 486, 29, 798, 876, 739, 43, 397, 194, 712, 517]
+
+Dev Document Indices:
+[62, 674, 67, 676, 372, 315, 384, 980, 744]
+[852, 723, 695, 255, 966]
+[634, 797]
+[142, 62, 186]
+[946, 891, 437, 156, 945, 39]
+
+Test Document Indices:
+[178, 644, 79, 963, 158, 237]
+[178, 801, 845, 238, 634, 483, 537, 368, 965, 325, 797]
+[743, 868, 217, 911, 471, 84, 748, 79, 497, 298, 578, 54]
+[317, 478, 893, 561, 67, 213, 743]
+[864, 216, 804, 857, 285]
+Put the labels Y for train, dev and test sets into arrays:
+
+# Extract labels from dataframes
+Y_train = train_df['label'].values
+Y_dev = dev_df['label'].values
+Y_test = test_df['label'].values
+​
+# Print the shape of label arrays for verification
+print("Shape of Y_train:", Y_train.shape)
+print("Shape of Y_dev:", Y_dev.shape)
+print("Shape of Y_test:", Y_test.shape)
+​
+Shape of Y_train: (2400,)
+Shape of Y_dev: (150,)
+Shape of Y_test: (900,)
+Network Architecture
+Your network should pass each word index into its corresponding embedding by looking-up on the embedding matrix and then compute the first hidden layer 𝐡1
+:
+
+𝐡1=1|𝑥|∑𝑖𝑊𝑒𝑖,𝑖∈𝑥
+where |𝑥|
+ is the number of words in the document and 𝑊𝑒
+ is an embedding matrix |𝑉|×𝑑
+, |𝑉|
+ is the size of the vocabulary and 𝑑
+ the embedding size.
+
+Then 𝐡1
+ should be passed through a ReLU activation function:
+
+𝐚1=𝑟𝑒𝑙𝑢(𝐡1)
+Finally the hidden layer is passed to the output layer:
+
+𝐲=softmax(𝐚1𝑊)
+where 𝑊
+ is a matrix 𝑑×||
+, ||
+ is the number of classes.
+
+During training, 𝐚1
+ should be multiplied with a dropout mask vector (elementwise) for regularisation before it is passed to the output layer.
+
+You can extend to a deeper architecture by passing a hidden layer to another one:
+
+𝐡𝐢=𝐚𝑖−1𝑊𝑖
+𝐚𝐢=𝑟𝑒𝑙𝑢(𝐡𝐢)
+Network Training
+First we need to define the parameters of our network by initiliasing the weight matrices. For that purpose, you should implement the network_weights function that takes as input:
+
+vocab_size: the size of the vocabulary
+embedding_dim: the size of the word embeddings
+hidden_dim: a list of the sizes of any subsequent hidden layers. Empty if there are no hidden layers between the average embedding and the output layer
+num_classes: the number of the classes for the output layer
+and returns:
+
+W: a dictionary mapping from layer index (e.g. 0 for the embedding matrix) to the corresponding weight matrix initialised with small random numbers (hint: use numpy.random.uniform with from -0.1 to 0.1)
+Make sure that the dimensionality of each weight matrix is compatible with the previous and next weight matrix, otherwise you won't be able to perform forward and backward passes. Consider also using np.float32 precision to save memory.
+
+def network_weights(vocab_size=1000, embedding_dim=300, hidden_dim=[], num_classes=3, init_val=0.1):
+    weights = {}
+    
+    # Initialize embedding matrix
+    weights[0] = np.random.uniform(-init_val, init_val, (vocab_size, embedding_dim)).astype(np.float32)
+    
+    # Initialize weights for hidden layers
+    for i, h_dim in enumerate(hidden_dim):
+        if i == 0:
+            input_dim = embedding_dim
+        else:
+            input_dim = hidden_dim[i-1]
+        
+        weights[i+1] = np.random.uniform(-init_val, init_val, (input_dim, h_dim)).astype(np.float32)
+    
+    # Initialize weights for output layer
+    if len(hidden_dim) > 0:
+        last_hidden_dim = hidden_dim[-1]
+    else:
+        last_hidden_dim = embedding_dim
+    
+    weights[len(hidden_dim) + 1] = np.random.uniform(-init_val, init_val, (last_hidden_dim, num_classes)).astype(np.float32)
+    
+    return weights
+X_train = train_df
+​
+import numpy as np
+​
+def network_weights(vocab_size=1000, embedding_dim=300, hidden_dim=[], num_classes=3, init_val=0.1):
+    weights = {}
+    weights[0] = np.random.uniform(-init_val, init_val, (vocab_size, embedding_dim)).astype(np.float32)
+    for i, h_dim in enumerate(hidden_dim):
+        if i == 0:
+            input_dim = embedding_dim
+        else:
+            input_dim = hidden_dim[i-1]
+        weights[i+1] = np.random.uniform(-init_val, init_val, (input_dim, h_dim)).astype(np.float32)
+    if len(hidden_dim) > 0:
+        last_hidden_dim = hidden_dim[-1]
+    else:
+        last_hidden_dim = embedding_dim
+    weights[len(hidden_dim) + 1] = np.random.uniform(-init_val, init_val, (last_hidden_dim, num_classes)).astype(np.float32)
+    return weights
+​
+​
+W = network_weights(vocab_size=3,embedding_dim=4,hidden_dim=[2], num_classes=2)
+W = network_weights(vocab_size=3, embedding_dim=4, hidden_dim=[2], num_classes=2)
+print("Embedding Matrix (W[0]):\n", W[0])
+print("Weight Matrix for Hidden Layer (W[1]):\n", W[1])
+print("Weight Matrix for Output Layer (W[2]):\n", W[2])
+​
+Embedding Matrix (W[0]):
+ [[ 0.03929384 -0.04277213 -0.05462971  0.01026295]
+ [ 0.0438938  -0.01537871  0.09615284  0.03696595]
+ [-0.00381362 -0.0215765  -0.0313644   0.04580994]]
+Weight Matrix for Hidden Layer (W[1]):
+ [[-0.01228555 -0.08806442]
+ [-0.02039115  0.04759908]
+ [-0.06350166 -0.06490965]
+ [ 0.00631027  0.00636552]]
+Weight Matrix for Output Layer (W[2]):
+ [[0.02688019 0.06988636]
+ [0.04489106 0.0222047 ]]
+Then you need to develop a softmax function (same as in Assignment 1) to be used in the output layer.
+
+It takes as input z (array of real numbers) and returns sig (the softmax of z)
+
+import numpy as np
+
+def softmax(z):
+    # Ensure numerical stability by subtracting the maximum value of z
+    e_z = np.exp(z - np.max(z))
+    
+    # Calculate softmax probabilities
+    sig = e_z / np.sum(e_z, axis=1, keepdims=True)
+    
+    return sig
+def softmax(z):
+    e_z = np.exp(z - np.max(z))
+    sig = e_z / np.sum(e_z, axis=1, keepdims=True)
+    return sig
+Now you need to implement the categorical cross entropy loss by slightly modifying the function from Assignment 1 to depend only on the true label y and the class probabilities vector y_preds:
+
+import numpy as np
+
+def categorical_cross_entropy(y, y_preds):
+    # Ensure numerical stability by adding a small value to prevent log(0)
+    epsilon = 1e-15
+    
+    # Clip y_preds to prevent log(0)
+    y_preds = np.clip(y_preds, epsilon, 1 - epsilon)
+    
+    # Compute cross-entropy loss
+    loss = -np.sum(y * np.log(y_preds))
+    
+    return loss
+
+def categorical_cross_entropy(y, y_preds):
+    epsilon = 1e-15
+    y_preds = np.clip(y_preds, epsilon, 1 - epsilon)
+    loss = -np.sum(y * np.log(y_preds))
+    return loss
+​
+Then, implement the relu function to introduce non-linearity after each hidden layer of your network (during the forward pass):
+
+𝑟𝑒𝑙𝑢(𝑧𝑖)=𝑚𝑎𝑥(𝑧𝑖,0)
+and the relu_derivative function to compute its derivative (used in the backward pass):
+
+relu_derivative(𝑧𝑖
+)=0, if 𝑧𝑖
+<=0, 1 otherwise.
+
+Note that both functions take as input a vector 𝑧
+
+Hint use .copy() to avoid in place changes in array z
+
+
+def relu_derivative(z):
+    dz = np.where(z <= 0, 0, 1)
+    return dz
+
+def relu(z):
+    a = np.maximum(0, z.copy())
+    return a
+​
+def relu_derivative(z):
+    dz = np.where(z <= 0, 0, 1)
+    return dz
+During training you should also apply a dropout mask element-wise after the activation function (i.e. vector of ones with a random percentage set to zero). The dropout_mask function takes as input:
+
+size: the size of the vector that we want to apply dropout
+dropout_rate: the percentage of elements that will be randomly set to zeros
+and returns:
+
+dropout_vec: a vector with binary values (0 or 1)
+import numpy as np
+
+def dropout_mask(size, dropout_rate):
+    # Generate a vector of ones
+    dropout_vec = np.ones(size)
+    
+    # Compute the number of elements to set to zero
+    num_zeros = int(dropout_rate * size)
+    
+    # Randomly choose indices to set to zero
+    zero_indices = np.random.choice(size, num_zeros, replace=False)
+    
+    # Set the chosen indices to zero
+    dropout_vec[zero_indices] = 0
+    
+    return dropout_vec
+
+def dropout_mask(size, dropout_rate):
+    dropout_vec = np.ones(size)
+    num_zeros = int(dropout_rate * size)
+    zero_indices = np.random.choice(size, num_zeros, replace=False)
+    dropout_vec[zero_indices] = 0
+    return dropout_vec
+print(dropout_mask(10, 0.2))
+print(dropout_mask(10, 0.2))
+[1. 1. 1. 1. 1. 1. 1. 1. 0. 0.]
+[1. 0. 1. 1. 1. 1. 1. 0. 1. 1.]
+Now you need to implement the forward_pass function that passes the input x through the network up to the output layer for computing the probability for each class using the weight matrices in W. The ReLU activation function should be applied on each hidden layer.
+
+x: a list of vocabulary indices each corresponding to a word in the document (input)
+W: a list of weight matrices connecting each part of the network, e.g. for a network with a hidden and an output layer: W[0] is the weight matrix that connects the input to the first hidden layer, W[1] is the weight matrix that connects the hidden layer to the output layer.
+dropout_rate: the dropout rate that is used to generate a random dropout mask vector applied after each hidden layer for regularisation.
+and returns:
+
+out_vals: a dictionary of output values from each layer: h (the vector before the activation function), a (the resulting vector after passing h from the activation function), its dropout mask vector; and the prediction vector (probability for each class) from the output layer.
+def forward_pass(x, W, dropout_rate=0.2):
+    out_vals = {
+        'h': [],
+        'a': [],
+        'dropout_masks': [],
+        'y': None
+    }
+    if len(x.shape) == 1:  # Check if x is 1D
+        x = x.reshape(1, -1) 
+        
+    h = np.mean(W[0][x, :], axis=0) 
+    out_vals['h'].append(h)
+
+    a = np.maximum(0, h)
+    out_vals['a'].append(a)
+
+    dropout_mask = np.random.binomial(1, 1-dropout_rate, size=a.shape)
+    a = dropout_mask
+    out_vals['dropout_masks'].append(dropout_mask)
+    
+    for i in range(1, len(W)-1): 
+        h = np.dot(a, W[i])
+        out_vals['h'].append(h)
+        a = np.maximum(0, h)
+        out_vals['a'].append(a)
+        dropout_mask = np.random.binomial(1, 1-dropout_rate, size=a.shape)
+        a= dropout_mask
+        out_vals['dropout_masks'].append(dropout_mask)
+
+    print(f"Length of W: {len(W)}")
+    logits = np.dot(a, W[-1])
+    out_vals['h'].append(logits)
+    exp_logits = np.exp(logits - np.max(logits))
+    y = exp_logits / np.sum(exp_logits)
+    out_vals['y'] = y
+
+    return out_vals
+def forward_pass(x, W, dropout_rate=0.2):
+    out_vals = {
+        'h': [],
+        'a': [],
+        'dropout_masks': [],
+        'y': None
+    }
+    if len(x.shape) == 1:  
+        x = x.reshape(1, -1) 
+    h = np.mean(W[0][x, :], axis=0) 
+    out_vals['h'].append(h)
+    a = np.maximum(0, h)
+    out_vals['a'].append(a)
+    dropout_mask = np.random.binomial(1, 1-dropout_rate, size=a.shape)
+    a = dropout_mask
+    out_vals['dropout_masks'].append(dropout_mask)
+    
+    for i in range(1, len(W)-1): 
+        h = np.dot(a, W[i])
+        out_vals['h'].append(h)
+        a = np.maximum(0, h)
+        out_vals['a'].append(a)
+        dropout_mask = np.random.binomial(1, 1-dropout_rate, size=a.shape)
+        a= dropout_mask
+        out_vals['dropout_masks'].append(dropout_mask)
+​
+    logits = np.dot(a, W[-1])
+    out_vals['h'].append(logits)
+    exp_logits = np.exp(logits - np.max(logits))
+    y = exp_logits / np.sum(exp_logits)
+    out_vals['y'] = y
+​
+    return out_vals
+The backward_pass function computes the gradients and updates the weights for each matrix in the network from the output to the input. It takes as input
+
+x: a list of vocabulary indices each corresponding to a word in the document (input)
+y: the true label
+W: a list of weight matrices connecting each part of the network, e.g. for a network with a hidden and an output layer: W[0] is the weight matrix that connects the input to the first hidden layer, W[1] is the weight matrix that connects the hidden layer to the output layer.
+out_vals: a dictionary of output values from a forward pass.
+learning_rate: the learning rate for updating the weights.
+freeze_emb: boolean value indicating whether the embedding weights will be updated.
+and returns:
+
+W: the updated weights of the network.
+Hint: the gradients on the output layer are similar to the multiclass logistic regression.
+
+import numpy as np
+
+def backward_pass(x, y, W, out_vals, lr=0.001, freeze_emb=False):
+    # Compute the number of layers in the network
+    num_layers = len(W)
+    
+    # Compute the number of classes
+    num_classes = W[num_layers - 1].shape[1]
+    
+    # Compute the number of words in the document
+    num_words = len(x)
+    
+    # Compute the one-hot encoding of the true label y
+    y_one_hot = np.zeros((1, num_classes))
+    y_one_hot[0, y] = 1
+    
+    # Initialize gradients dictionary to store gradients for each weight matrix
+    gradients = {}
+    
+    # Compute gradients for the output layer (similar to multiclass logistic regression)
+    d_loss = out_vals['y_pred'] - y_one_hot
+    gradients[num_layers - 1] = np.dot(out_vals[f'a_{num_layers - 2}'].T, d_loss)
+    
+    # Backpropagate gradients through the network
+    for i in range(num_layers - 2, -1, -1):
+        if i > 0:
+            # Compute gradients for hidden layers
+            d_loss = np.dot(d_loss, W[i + 1].T)
+            d_loss *= relu_derivative(out_vals[f'h_{i}'])
+            d_loss *= out_vals[f'dropout_{i}']
+            gradients[i] = np.dot(out_vals[f'h_{i - 1}'].T, d_loss)
+        else:
+            # Compute gradients for embedding layer
+            d_loss = np.dot(d_loss, W[i + 1].T)
+            gradients[i] = np.dot(d_loss.T, x)
+    
+    # Update weights
+    for i in range(num_layers):
+        if freeze_emb and i == 0:
+            continue  # Skip updating embedding weights if freeze_emb is True
+        
+        W[i] -= lr * gradients[i]
+    
+    return W
+
+def backward_pass(x, y, W, out_vals, lr=0.001, freeze_emb=False):
+    num_layers = len(W)
+    num_classes = W[num_layers - 1].shape[1]
+    num_words = len(x)
+    y_one_hot = np.zeros((1, num_classes))
+    y_one_hot[0, y] = 1
+    gradients = {}
+    d_loss = out_vals['y_pred'] - y_one_hot
+    gradients[num_layers - 1] = np.dot(out_vals[f'a_{num_layers - 2}'].T, d_loss)
+    
+    for i in range(num_layers - 2, -1, -1):
+        if i > 0:
+            d_loss = np.dot(d_loss, W[i + 1].T)
+            d_loss *= relu_derivative(out_vals[f'h_{i}'])
+            d_loss *= out_vals[f'dropout_{i}']
+            gradients[i] = np.dot(out_vals[f'h_{i - 1}'].T, d_loss)
+        else:
+            d_loss = np.dot(d_loss, W[i + 1].T)
+            gradients[i] = np.dot(d_loss.T, x)
+    
+    for i in range(num_layers):
+        if freeze_emb and i == 0:
+            continue
+        W[i] -= lr * gradients[i]
+    
+    return W
+Finally you need to modify SGD to support back-propagation by using the forward_pass and backward_pass functions.
+
+The SGD function takes as input:
+
+X_tr: array of training data (vectors)
+Y_tr: labels of X_tr
+W: the weights of the network (dictionary)
+X_dev: array of development (i.e. validation) data (vectors)
+Y_dev: labels of X_dev
+lr: learning rate
+dropout: regularisation strength
+epochs: number of full passes over the training data
+tolerance: stop training if the difference between the current and previous validation loss is smaller than a threshold
+freeze_emb: boolean value indicating whether the embedding weights will be updated (to be used by the backward pass function).
+print_progress: flag for printing the training progress (train/validation loss)
+and returns:
+
+weights: the weights learned
+training_loss_history: an array with the average losses of the whole training set after each epoch
+validation_loss_history: an array with the average losses of the whole development set after each epoch
+import numpy as np
+
+def SGD(X_tr, Y_tr, W, X_dev=[], Y_dev=[], lr=0.001, dropout=0.2, epochs=5, tolerance=0.001, freeze_emb=False, print_progress=True):
+    training_loss_history = []
+    validation_loss_history = []
+    
+    # Iterate through epochs
+    for epoch in range(epochs):
+        # Shuffle training data for each epoch
+        indices = np.random.permutation(len(X_tr))
+        X_tr_shuffled = X_tr[indices]
+        Y_tr_shuffled = Y_tr[indices]
+        
+        # Initialize training loss and validation loss for this epoch
+        tr_loss_epoch = 0
+        dev_loss_epoch = 0
+        
+        # Iterate through training examples
+        for i in range(len(X_tr_shuffled)):
+            x = X_tr_shuffled[i]
+            y = Y_tr_shuffled[i]
+            
+            # Forward pass
+            out_vals = forward_pass(x, W, dropout_rate=dropout)
+            
+            # Compute training loss
+            tr_loss = categorical_cross_entropy(np.array([y]), out_vals['y_pred'])
+            tr_loss_epoch += tr_loss
+            
+            # Backward pass and weight updates
+            W = backward_pass(x, y, W, out_vals, lr, freeze_emb)
+        
+        # Compute average training loss for this epoch
+        tr_loss_epoch /= len(X_tr_shuffled)
+        training_loss_history.append(tr_loss_epoch)
+        
+        # If development set is provided, compute validation loss
+        if len(X_dev) > 0 and len(Y_dev) > 0:
+            dev_loss_epoch = 0
+            for j in range(len(X_dev)):
+                x_dev = X_dev[j]
+                y_dev = Y_dev[j]
+                
+                # Forward pass
+                out_vals_dev = forward_pass(x_dev, W, dropout_rate=0)
+                
+                # Compute validation loss
+                dev_loss = categorical_cross_entropy(np.array([y_dev]), out_vals_dev['y_pred'])
+                dev_loss_epoch += dev_loss
+            
+            # Compute average validation loss for this epoch
+            dev_loss_epoch /= len(X_dev)
+            validation_loss_history.append(dev_loss_epoch)
+        
+        # Print training progress
+        if print_progress:
+            print(f"Epoch {epoch + 1}/{epochs}: Training Loss: {tr_loss_epoch}, Validation Loss: {dev_loss_epoch}")
+        
+        # Check early stopping condition
+        if len(validation_loss_history) > 1 and abs(validation_loss_history[-1] - validation_loss_history[-2]) < tolerance:
+            print("Stopping early due to convergence.")
+            break
+    
+    return W, training_loss_history, validation_loss_history
+
+def SGD(X_tr, Y_tr, W, X_dev=[], Y_dev=[], lr=0.001, dropout=0.2, epochs=5, tolerance=0.001, freeze_emb=False, print_progress=True):
+    training_loss_history = []
+    validation_loss_history = []
+    
+    for epoch in range(epochs):
+        indices = np.random.permutation(len(X_tr))
+        X_tr_shuffled = X_tr[indices]
+        Y_tr_shuffled = Y_tr[indices]
+        
+        tr_loss_epoch = 0
+        dev_loss_epoch = 0
+        
+        for i in range(len(X_tr_shuffled)):
+            x = X_tr_shuffled[i]
+            y = Y_tr_shuffled[i]
+            
+            out_vals = forward_pass(x, W, dropout_rate=dropout)
+            
+            tr_loss = categorical_cross_entropy(np.array([y]), out_vals['y_pred'])
+            tr_loss_epoch += tr_loss
+            
+            W = backward_pass(x, y, W, out_vals, lr, freeze_emb)
+        
+        tr_loss_epoch /= len(X_tr_shuffled)
+        training_loss_history.append(tr_loss_epoch)
+        
+        if len(X_dev) > 0 and len(Y_dev) > 0:
+            dev_loss_epoch = 0
+            for j in range(len(X_dev)):
+                x_dev = X_dev[j]
+                y_dev = Y_dev[j]
+                
+                out_vals_dev = forward_pass(x_dev, W, dropout_rate=0)
+                
+                dev_loss = categorical_cross_entropy(np.array([y_dev]), out_vals_dev['y_pred'])
+                dev_loss_epoch += dev_loss
+            
+            dev_loss_epoch /= len(X_dev)
+            validation_loss_history.append(dev_loss_epoch)
+        
+        if print_progress:
+            print(f"Epoch {epoch + 1}/{epochs}: Training Loss: {tr_loss_epoch}, Validation Loss: {dev_loss_epoch}")
+        
+        if len(validation_loss_history) > 1 and abs(validation_loss_history[-1] - validation_loss_history[-2]) < tolerance:
+            print("Stopping early due to convergence.")
+            break
+    
+    return W, training_loss_history, validation_loss_history
+​
+Now you are ready to train and evaluate your neural net. First, you need to define your network using the network_weights function followed by SGD with backprop:
+
+import numpy as np
+
+# Shuffle indices and convert to a NumPy array
+indices = np.random.permutation(len(X_tr_indices))
+
+# Shuffle X_tr_indices and Y_tr using the shuffled indices
+X_tr_shuffled = [X_tr_indices[i] for i in indices]
+Y_tr_shuffled = Y_tr[indices]
+
+# Train the network using SGD with backpropagation
+W_learned, training_loss_history, validation_loss_history = SGD(X_tr_shuffled, Y_tr_shuffled,
+                                                                W,
+                                                                X_dev=X_dev_indices, 
+                                                                Y_dev=Y_dev,
+                                                                lr=0.001, 
+                                                                dropout=0.2,
+                                                                freeze_emb=False,
+                                                                tolerance=0.01,
+                                                                epochs=100)
+
+import numpy as np
+​
+# Shuffle indices and convert to a NumPy array
+indices = np.random.permutation(len(X_tr_indices))
+​
+# Shuffle X_tr_indices and Y_tr using the shuffled indices
+X_tr_shuffled = [X_tr_indices[i] for i in indices]
+Y_tr_shuffled = Y_tr[indices]
+​
+# Train the network using SGD with backpropagation
+W_learned, training_loss_history, validation_loss_history = SGD(X_tr_shuffled, Y_tr_shuffled,
+                                                                W,
+                                                                X_dev=X_dev_indices, 
+                                                                Y_dev=Y_dev,
+                                                                lr=0.001, 
+                                                                dropout=0.2,
+                                                                freeze_emb=False,
+                                                                tolerance=0.01,
+                                                                epochs=100)
+​
+---------------------------------------------------------------------------
+TypeError                                 Traceback (most recent call last)
+Cell In[251], line 11
+      8 Y_tr_shuffled = Y_tr[indices]
+     10 # Train the network using SGD with backpropagation
+---> 11 W_learned, training_loss_history, validation_loss_history = SGD(X_tr_shuffled, Y_tr_shuffled,
+     12                                                                 W,
+     13                                                                 X_dev=X_dev_indices, 
+     14                                                                 Y_dev=Y_dev,
+     15                                                                 lr=0.001, 
+     16                                                                 dropout=0.2,
+     17                                                                 freeze_emb=False,
+     18                                                                 tolerance=0.01,
+     19                                                                 epochs=100)
+
+Cell In[250], line 7, in SGD(X_tr, Y_tr, W, X_dev, Y_dev, lr, dropout, epochs, tolerance, freeze_emb, print_progress)
+      5 for epoch in range(epochs):
+      6     indices = np.random.permutation(len(X_tr))
+----> 7     X_tr_shuffled = X_tr[indices]
+      8     Y_tr_shuffled = Y_tr[indices]
+     10     tr_loss_epoch = 0
+
+TypeError: only integer scalar arrays can be converted to a scalar index
+
+Plot the learning process:
+
+​
+Compute accuracy, precision, recall and F1-Score:
+
+preds_te = [np.argmax(forward_pass(x, W, dropout_rate=0.0)['y']) 
+            for x,y in zip(X_te,Y_te)]
+​
+print('Accuracy:', accuracy_score(Y_te,preds_te))
+print('Precision:', precision_score(Y_te,preds_te,average='macro'))
+print('Recall:', recall_score(Y_te,preds_te,average='macro'))
+print('F1-Score:', f1_score(Y_te,preds_te,average='macro'))
+Discuss how did you choose model hyperparameters ?
+​
+Use Pre-trained Embeddings
+Now re-train the network using GloVe pre-trained embeddings. You need to modify the backward_pass function above to stop computing gradients and updating weights of the embedding matrix.
+
+Use the function below to obtain the embedding martix for your vocabulary. Generally, that should work without any problem. If you get errors, you can modify it.
+
+def get_glove_embeddings(f_zip, f_txt, word2id, emb_size=300):
+    
+    w_emb = np.zeros((len(word2id), emb_size))
+    
+    with zipfile.ZipFile(f_zip) as z:
+        with z.open(f_txt) as f:
+            for line in f:
+                line = line.decode('utf-8')
+                word = line.split()[0]
+                     
+                if word in vocab:
+                    emb = np.array(line.strip('\n').split()[1:]).astype(np.float32)
+                    w_emb[word2id[word]] +=emb
+    return w_emb
+w_glove = get_glove_embeddings("glove.840B.300d.zip","glove.840B.300d.txt",word2id)
+First, initialise the weights of your network using the network_weights function. Second, replace the weigths of the embedding matrix with w_glove. Finally, train the network by freezing the embedding weights:
+
+​
+preds_te = [np.argmax(forward_pass(x, W, dropout_rate=0.0)['y']) 
+            for x,y in zip(X_te,Y_te)]
+​
+print('Accuracy:', accuracy_score(Y_te,preds_te))
+print('Precision:', precision_score(Y_te,preds_te,average='macro'))
+print('Recall:', recall_score(Y_te,preds_te,average='macro'))
+print('F1-Score:', f1_score(Y_te,preds_te,average='macro'))
+Discuss how did you choose model hyperparameters ?
+​
+Extend to support deeper architectures
+Extend the network to support back-propagation for more hidden layers. You need to modify the backward_pass function above to compute gradients and update the weights between intermediate hidden layers. Finally, train and evaluate a network with a deeper architecture. Do deeper architectures increase performance?
+
+​
+preds_te = [np.argmax(forward_pass(x, W, dropout_rate=0.0)['y']) 
+            for x,y in zip(X_te,Y_te)]
+​
+print('Accuracy:', accuracy_score(Y_te,preds_te))
+print('Precision:', precision_score(Y_te,preds_te,average='macro'))
+print('Recall:', recall_score(Y_te,preds_te,average='macro'))
+print('F1-Score:', f1_score(Y_te,preds_te,average='macro'))
+Discuss how did you choose model hyperparameters ?
+​
+Full Results
+Add your final results here:
+
+Model	Precision	Recall	F1-Score	Accuracy
+Average Embedding				
+Average Embedding (Pre-trained)				
+Average Embedding (Pre-trained) + X hidden layers				
+Please discuss why your best performing model is better than the rest and provide a bried error analaysis.
